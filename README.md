@@ -6,7 +6,7 @@ A simple command-line tool that sends prompts to OpenAI's API for quick answers 
 
 - Send text prompts directly to OpenAI
 - Pipe command output for analysis and explanation
-- Configurable OpenAI model selection
+- Configurable OpenAI model and base prompt selection
 - Designed for concise, terminal-friendly responses
 - No special formatting - just clean, readable output
 
@@ -40,23 +40,24 @@ Requirements:
 - Rust 1.70+
 - Cargo
 
-```bash
-git clone https://github.com/krets/heystupid.git
-cd heystupid
-cargo build --release
-```
-
-The binary will be available at `target/release/heystupid`
-
 ## Configuration
 
-Create a configuration file in your home directory:
+Create a configuration file named `.heystupid.config` in your home directory.
+Use the following key=value format (no quotes, no spaces around `=`):
 
-```bash
-echo 'OPENAI_API_KEY=your_openai_api_key_here' > ~/.heystupid
+```
+openai_api_key=your_openai_api_key_here
+model=gpt-4o-mini
+base_prompt=Your custom base prompt here
 ```
 
-Get your OpenAI API key from: https://platform.openai.com/api-keys
+- `openai_api_key` (required): Your OpenAI API key.
+- `model` (optional): OpenAI model to use. Defaults to `gpt-4.1-mini` if unspecified.
+- `base_prompt` (optional): Base prompt providing context to OpenAI.
+  If not set, a default prompt that instructs concise and clean terminal-friendly responses
+  is used.
+
+Get your OpenAPI key from: https://platform.openai.com/api-keys
 
 ## Usage
 
@@ -95,7 +96,7 @@ dmesg | tail -20 | heystupid "Are there any hardware issues?"
 
 ## Options
 
-- `--model`: Specify OpenAI model (default: gpt-4o-mini)
+- `--model`: Specify OpenAI model (overrides config)
 - `--help`: Show help information
 - `--version`: Show version information
 
@@ -119,16 +120,6 @@ tail -n 50 /var/log/syslog | heystupid "Any concerning log entries?"
 
 - OpenAI API access and valid API key
 - Internet connection for API requests
-
-## Building for Distribution
-
-```bash
-# Linux x86_64
-cargo build --release --target x86_64-unknown-linux-gnu
-
-# Windows x86_64 (from Linux with cross-compilation)
-cargo build --release --target x86_64-pc-windows-gnu
-```
 
 ## License
 

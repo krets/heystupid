@@ -7,14 +7,17 @@ use std::{
 };
 use sysinfo::{System, SystemExt};
 use chrono::Local;
+use once_cell::sync::Lazy;
+
+static DEFAULT_MODEL: Lazy<String> = Lazy::new(|| "gpt-4.1-mini".to_string());
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
     prompt: Option<String>,
 
-    #[clap(long, default_value = "gpt-4.1-mini")]
-    model: String,
+    #[clap(long)]
+    model: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -32,7 +35,13 @@ struct Message {
     content: String,
 }
 
-fn load_config() -> Result<String, String> {
+struct Config {
+    openai_api_key: String,
+    model: String,
+    base_prompt: String,
+}
+
+fn load_config() -> Result<Config, String> {
     let home_dir = dirs::home_dir().ok_or("Home directory not found.")?;
     let config_path = home_dir.join(".heystupid.config");
     if !config_path.exists() {
@@ -45,28 +54,57 @@ fn load_config() -> Result<String, String> {
     let content = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config file {}: {}", config_path.display(), e))?;
 
+    let mut openai_api_key = None;
+    let mut model = None;
+    let mut base_prompt = None;
+
     for line in content.lines() {
         if let Some(stripped) = line.strip_prefix("openai_api_key") {
             if let Some((_, key)) = stripped.split_once('=') {
                 let key = key.trim();
                 if !key.is_empty() {
-                    return Ok(key.to_string());
+                    openai_api_key = Some(key.to_string());
+                }
+            }
+        } else if let Some(stripped) = line.strip_prefix("model") {
+            if let Some((_, val)) = stripped.split_once('=') {
+                let val = val.trim();
+                if !val.is_empty() {
+                    model = Some(val.to_string());
+                }
+            }
+        } else if let Some(stripped) = line.strip_prefix("base_prompt") {
+            if let Some((_, val)) = stripped.split_once('=') {
+                let val = val.trim();
+                if !val.is_empty() {
+                    base_prompt = Some(val.to_string());
                 }
             }
         }
     }
 
-    Err(format!(
+    let openai_api_key = openai_api_key.ok_or(format!(
         "openai_api_key not found or empty in config file {}",
         config_path.display()
-    ))
+    ))?;
+
+    let model = model.unwrap_or_else(|| DEFAULT_MODEL.clone());
+
+    let base_prompt = base_prompt.unwrap_or_else(base_prompt_default);
+
+    Ok(Config {
+        openai_api_key,
+        model,
+        base_prompt,
+    })
 }
 
-fn base_prompt() -> &'static str {
+fn base_prompt_default() -> String {
     "This is a command line tool that accepts command output and a user prompt.
 Responses should be concise and formatted to wrap at 80 characters long.
 Do not include formatting characters or markdown. Multi-line output is acceptable.
 Avoid praise and filler text. Respond with summations or evaluations of errors to help the user."
+        .to_string()
 }
 
 fn is_stdin_tty() -> bool {
@@ -94,9 +132,12 @@ fn system_stats() -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    let open_ai_key = load_config()?;
+    let config = load_config()?;
 
-    let args = Args::parse();
+    let mut args = Args::parse();
+
+    // Override model from CLI if provided
+    let model = args.model.take().unwrap_or(config.model);
 
     let mut stdin_input = String::new();
     if !is_stdin_tty() {
@@ -130,7 +171,7 @@ async fn main() -> Result<(), String> {
         }),
         serde_json::json!({
             "role": "system",
-            "content": base_prompt()
+            "content": config.base_prompt
         }),
         serde_json::json!({
             "role": "user",
@@ -140,10 +181,10 @@ async fn main() -> Result<(), String> {
 
     let response = client
         .post(url)
-        .header(header::AUTHORIZATION, format!("Bearer {}", open_ai_key))
+        .header(header::AUTHORIZATION, format!("Bearer {}", config.openai_api_key))
         .header(header::CONTENT_TYPE, "application/json")
         .json(&serde_json::json!({
-            "model": args.model,
+            "model": model,
             "messages": messages
         }))
         .send()
